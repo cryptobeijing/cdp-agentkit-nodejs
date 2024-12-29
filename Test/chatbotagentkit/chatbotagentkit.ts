@@ -1,58 +1,117 @@
-import { TwitterToolkit } from "@coinbase/twitter-langchain";
-import { TwitterAgentkit } from "@coinbase/cdp-agentkit-core";
+import { CdpAgentkit } from "@coinbase/cdp-agentkit-core";
+import { CdpToolkit } from "@coinbase/cdp-langchain";
 import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import * as dotenv from "dotenv";
+import * as fs from "fs";
 import * as readline from "readline";
+
 
 dotenv.config();
 
-const modifier = `
-  You are a helpful agent that can interact with the Twitter (X) API using the Coinbase Developer Platform Twitter (X) Agentkit.
-  You are empowered to interact with Twitter (X) using your tools.
+/**
+ * Validates that required environment variables are set
+ *
+ * @throws {Error} - If required environment variables are missing
+ * @returns {void}
+ */
+function validateEnvironment(): void {
+  const missingVars: string[] = [];
 
-  If someone asks you to do something you can't do with your currently available tools, you must say so, and encourage them to implement it themselves using the Twitter (X) API + Agentkit.
-  Recommend they go to https://developer.x.com/en/docs for more informaton.
+  // Check required variables
+  const requiredVars = ["XAI_API_KEY", "CDP_API_KEY_NAME", "CDP_API_KEY_PRIVATE_KEY"];
+  requiredVars.forEach(varName => {
+    if (!process.env[varName]) {
+      missingVars.push(varName);
+    }
+  });
 
-  Be concise and helpful with your responses.
-  Refrain from restating your tools' descriptions unless it is explicitly requested.
-`;
+  // Exit if any required variables are missing
+  if (missingVars.length > 0) {
+    console.error("Error: Required environment variables are not set");
+    missingVars.forEach(varName => {
+      console.error(`${varName}=your_${varName.toLowerCase()}_here`);
+    });
+    process.exit(1);
+  }
+
+  // Warn about optional NETWORK_ID
+  if (!process.env.NETWORK_ID) {
+    console.warn("Warning: NETWORK_ID not set, defaulting to base-sepolia testnet");
+  }
+}
+
+// Add this right after imports and before any other code
+validateEnvironment();
+
+// Configure a file to persist the agent's CDP MPC Wallet Data
+const WALLET_DATA_FILE = "wallet_data.txt";
 
 /**
- * Initialize the agent with Twitter (X) Agentkit
+ * Initialize the agent with CDP Agentkit
  *
  * @returns Agent executor and config
  */
-async function initialize() {
-  // Initialize LLM
-  const llm = new ChatOpenAI({ model: "gpt-4o-mini" });
+async function initializeAgent() {
+  try {
+    // Initialize LLM with xAI configuration
+    const llm = new ChatOpenAI({
+      model: "grok-beta",
+      apiKey: process.env.XAI_API_KEY,
+      configuration: {
+        baseURL: "https://api.x.ai/v1"
+      }
+    });
 
-  // Twitter (X) Agentkit
-  const twitterAgentkit = new TwitterAgentkit();
+    let walletDataStr: string | null = null;
 
-  // Twitter (X) Toolkit
-  const twitterToolkit = new TwitterToolkit(twitterAgentkit);
+    // Read existing wallet data if available
+    if (fs.existsSync(WALLET_DATA_FILE)) {
+      try {
+        walletDataStr = fs.readFileSync(WALLET_DATA_FILE, "utf8");
+      } catch (error) {
+        console.error("Error reading wallet data:", error);
+        // Continue without wallet data
+      }
+    }
 
-  // Twitter (X) tools
-  const tools = twitterToolkit.getTools();
+    // Configure CDP Agentkit
+    const config = {
+      cdpWalletData: walletDataStr || undefined,
+      networkId: process.env.NETWORK_ID || "base-sepolia",
+    };
 
-  // Store buffered conversation history in memory
-  const memory = new MemorySaver();
+    // Initialize CDP agentkit
+    const agentkit = await CdpAgentkit.configureWithWallet(config);
 
-  // React Agent options
-  const agentConfig = { configurable: { thread_id: "Twitter Agentkit Chatbot Example!" } };
+    // Initialize CDP Agentkit Toolkit and get tools
+    const cdpToolkit = new CdpToolkit(agentkit);
+    const tools = cdpToolkit.getTools();
 
-  // Create React Agent using the LLM and Twitter (X) tools
-  const agent = createReactAgent({
-    llm,
-    tools,
-    checkpointSaver: memory,
-    messageModifier: modifier,
-  });
+    // Store buffered conversation history in memory
+    const memory = new MemorySaver();
+    const agentConfig = { configurable: { thread_id: "CDP Agentkit Chatbot Example!" } };
 
-  return { agent, config: agentConfig };
+    // Create React Agent using the LLM and CDP Agentkit tools
+    const agent = createReactAgent({
+      llm,
+      tools,
+      checkpointSaver: memory,
+      messageModifier:
+        "You are a helpful agent that can interact onchain using the Coinbase Developer Platform Agentkit. You are empowered to interact onchain using your tools. If you ever need funds, you can request them from the faucet if you are on network ID `base-sepolia`. If not, you can provide your wallet details and request funds from the user. If someone asks you to do something you can't do with your currently available tools, you must say so, and encourage them to implement it themselves using the CDP SDK + Agentkit, recommend they go to docs.cdp.coinbase.com for more informaton. Be concise and helpful with your responses. Refrain from restating your tools' descriptions unless it is explicitly requested.",
+    });
+
+    // Save wallet data
+    const exportedWallet = await agentkit.exportWallet();
+    fs.writeFileSync(WALLET_DATA_FILE, exportedWallet);
+
+    return { agent, config: agentConfig };
+  } catch (error) {
+    console.error("Failed to initialize agent:", error);
+    throw error; // Re-throw to be handled by caller
+  }
 }
 
 /**
@@ -62,15 +121,13 @@ async function initialize() {
  * @param config - Agent configuration
  * @param interval - Time interval between actions in seconds
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function runAutonomousMode(agent: any, config: any, interval = 10) {
   console.log("Starting autonomous mode...");
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       const thought =
-        "Be creative and do something interesting on Twitter. " +
+        "Be creative and do something interesting on the blockchain. " +
         "Choose an action or set of actions and execute it that highlights your abilities.";
 
       const stream = await agent.stream({ messages: [new HumanMessage(thought)] }, config);
@@ -100,7 +157,6 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
  * @param agent - The agent executor
  * @param config - Agent configuration
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function runChatMode(agent: any, config: any) {
   console.log("Starting chat mode... Type 'exit' to end.");
 
@@ -113,7 +169,6 @@ async function runChatMode(agent: any, config: any) {
     new Promise(resolve => rl.question(prompt, resolve));
 
   try {
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const userInput = await question("\nPrompt: ");
 
@@ -156,7 +211,6 @@ async function chooseMode(): Promise<"chat" | "auto"> {
   const question = (prompt: string): Promise<string> =>
     new Promise(resolve => rl.question(prompt, resolve));
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     console.log("\nAvailable modes:");
     console.log("1. chat    - Interactive chat mode");
@@ -182,7 +236,7 @@ async function chooseMode(): Promise<"chat" | "auto"> {
  */
 async function main() {
   try {
-    const { agent, config } = await initialize();
+    const { agent, config } = await initializeAgent();
     const mode = await chooseMode();
 
     if (mode === "chat") {

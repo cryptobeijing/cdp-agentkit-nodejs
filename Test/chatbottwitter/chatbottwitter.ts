@@ -27,7 +27,7 @@ const modifier = `
  */
 async function initialize() {
   // Initialize LLM
-  const llm = new ChatOpenAI({ model: "gpt-4o-mini" });
+  const llm = new ChatOpenAI();
 
   // Twitter (X) Agentkit
   const twitterAgentkit = new TwitterAgentkit();
@@ -70,7 +70,7 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
   while (true) {
     try {
       const thought =
-        "Be creative and do something interesting on Twitter. " +
+        "Be creative and do something interesting on the blockchain. " +
         "Choose an action or set of actions and execute it that highlights your abilities.";
 
       const stream = await agent.stream({ messages: [new HumanMessage(thought)] }, config);

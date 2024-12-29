@@ -1,0 +1,22 @@
+{
+  "name": "chatbotagentkit",
+  "version": "1.0.0",
+  "description": "CDP Agentkit Chatbot Example",
+  "main": "chatbotagentkit.ts",
+  "scripts": {
+    "start": "ts-node chatbotagentkit.ts"
+  },
+  "dependencies": {
+    "@coinbase/cdp-agentkit-core": "latest",
+    "@coinbase/cdp-langchain": "latest",
+    "@langchain/core": "latest",
+    "@langchain/langgraph": "latest",
+    "@langchain/openai": "latest",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+} 
